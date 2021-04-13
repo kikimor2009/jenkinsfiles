@@ -1,0 +1,48 @@
+def (MAJOR, MINOR, PATCH, COMMIT) = new String[4]
+
+pipeline {
+  agent { label 'Android' }
+  environment {
+        TAG = sh(script:'./Jenkins/GetTagName.sh', returnStdout: true).trim()
+  }
+  stages {
+    stage ("Prepare Env") {
+      steps {
+        script {
+          VARS = env.TAG.split("\\.")
+          MAJOR = VARS[0]
+          MINOR = VARS[1]
+          PATCH = VARS[2]
+          COMMIT = VARS[3]
+        }
+      }
+    }
+    stage("Build") {
+      steps {
+        withCredentials([usernamePassword(credentialsId: '54dcbdf1-f9cd-43aa-85e9-856017901087', passwordVariable: 'PASS', usernameVariable: 'LOGIN')]) {
+          sh """chmod -R 755 ./*
+                ./gradlew --no-daemon -PvMajor=${MAJOR} -PvMinor=${MINOR} -PvPatch=${PATCH} -PmapsGitBranch=${BRANCH_NAME} -Pusername=${LOGIN} -Ppassword=${PASS} assembleRelease"""
+        }
+      }
+    }
+    stage("Copy to SF") {
+      steps {
+        sh """scp -i ~/.ssh/jenkinsAgent_rsa $WORKSPACE/app/build/outputs/apk/release/TestSoft_* user@192.168.77.11:JenkinsDirectory/Android_APK/Soft/Stable
+              rm -r $WORKSPACE/app/build/outputs/apk/*"""
+      }
+    }
+    stage("Push Tags") {
+      steps {
+        withCredentials([usernamePassword(credentialsId: '54dcbdf1-f9cd-43aa-85e9-856017901087', passwordVariable: 'PASS', usernameVariable: 'LOGIN')]) {
+          sh """git tag uni_mob_${MAJOR}.${MINOR}.${PATCH}
+                git push https://${LOGIN}:${PASS}@bitbucket.org/cerebrum/unicat-android.git --tags"""
+          }
+        }
+      }
+  }
+  post {
+    always {
+      telegramSend(message: "Branch - $BRANCH_NAME Result - ${currentBuild.currentResult} Build URL - $BUILD_URL", chatId: -4680000522)
+    }
+  }
+}
