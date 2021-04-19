@@ -19,30 +19,34 @@ pipeline {
     }
     stage("Build") {
       steps {
-        withCredentials([usernamePassword(credentialsId: '54dcbdf1-f9cd-43aa-85e9-856017901087', passwordVariable: 'PASS', usernameVariable: 'LOGIN')]) {
+        withCredentials([string(credentialsId: 'and_build', variable: 'TOKEN')]) {
           sh """chmod -R 755 ./*
-                ./gradlew --no-daemon -PvMajor=${MAJOR} -PvMinor=${MINOR} -PvPatch=${PATCH} -PmapsGitBranch=${BRANCH_NAME} -Pusername=${LOGIN} -Ppassword=${PASS} assembleRelease"""
+                ./gradlew --no-daemon -PvMajor=${MAJOR} -PvMinor=${MINOR} -PvPatch=${PATCH} -PmapsGitBranch=${BRANCH_NAME} -Ptoken=${TOKEN} assembleRelease
+              """
         }
       }
     }
-    stage("Copy to SF") {
+    stage("Copy to NAS") {
       steps {
-        sh """scp -i ~/.ssh/jenkinsAgent_rsa $WORKSPACE/app/build/outputs/apk/release/TestSoft_* user@192.168.77.11:JenkinsDirectory/Android_APK/Soft/Stable
-              rm -r $WORKSPACE/app/build/outputs/apk/*"""
+        sshPublisher(publishers: [sshPublisherDesc(configName: 'NAS_Bud', transfers: [sshTransfer(cleanRemote: false, excludes: '', execCommand: '', execTimeout: 120000, flatten: false, makeEmptyDirs: false, noDefaultExcludes: false, patternSeparator: '[, ]+', remoteDirectory: 'Android/UniCat/Stable', remoteDirectorySDF: false, removePrefix: 'app/build/outputs/apk/release/', sourceFiles: 'app/build/outputs/apk/release/UniCat_*')], usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
       }
     }
     stage("Push Tags") {
       steps {
-        withCredentials([usernamePassword(credentialsId: '54dcbdf1-f9cd-43aa-85e9-856017901087', passwordVariable: 'PASS', usernameVariable: 'LOGIN')]) {
-          sh """git tag uni_mob_${MAJOR}.${MINOR}.${PATCH}
-                git push https://${LOGIN}:${PASS}@bitbucket.org/cerebrum/unicat-android.git --tags"""
-          }
-        }
-      }
+        sshagent(['gitlab_pull']) {
+                    sh("""
+                        #!/usr/bin/env bash
+                        export GIT_SSH_COMMAND="ssh -oStrictHostKeyChecking=no"
+			                  git tag uni_mob_${MAJOR}.${MINOR}.${PATCH}
+                        git push origin --tags
+                     """)
+         }
+       }
+     }
   }
   post {
     always {
-      telegramSend(message: "Branch - $BRANCH_NAME Result - ${currentBuild.currentResult} Build URL - $BUILD_URL", chatId: -4680000522)
+      telegramSend(message: "Branch - $BRANCH_NAME Result - ${currentBuild.currentResult} Build URL - $BUILD_URL", chatId: -468000522)
     }
   }
 }

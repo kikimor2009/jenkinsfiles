@@ -13,7 +13,7 @@ pipeline {
   }
   post {
     success {
-      build( wait: false, job: "Android/TestSoft-GitLab/${BRANCH_NAME}")
+      build( wait: false, job: "Android/GeoMaps-GitLab/${BRANCH_NAME}")
     }
   }
 }
