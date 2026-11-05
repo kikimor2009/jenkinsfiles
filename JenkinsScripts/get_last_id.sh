@@ -1,14 +1,21 @@
-#!/bin/bash -e
+#!/bin/bash
+set -euo pipefail
 
 template_to_find="build_id_"
 
-full_version=$(git tag -l "$template_to_find"* --sort=-v:refname | head -n1)
-if [ -z "$full_version" ]; then
-  exit 3
-fi
+# No pipe to head, so pipefail can't trip on SIGPIPE.
+full_version=$(git for-each-ref --count=1 --sort=-v:refname --format='%(refname:short)' "refs/tags/$template_to_find*")
 
-id=$(echo "$full_version" | grep -o '[0-9].*')
-id=$((id + 1))
+if [ -z "$full_version" ]; then
+  id=1
+else
+  id=${full_version#"$template_to_find"}
+  if ! [[ "$id" =~ ^[0-9]+$ ]]; then
+    echo "Tag '$full_version' does not end with a number" >&2
+    exit 4
+  fi
+  id=$((id + 1))
+fi
 
 git_commit_id=$(git show -s --format=%h)
 

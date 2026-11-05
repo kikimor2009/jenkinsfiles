@@ -1,46 +1,41 @@
-#!/bin/bash -xe
+#!/bin/bash
+set -euo pipefail
 
-#path_to_repo="$WORKSPACE/UA"
-#filename="ENV_VARS.txt"
-template_to_find="uni_mob_1"
-build_branch=dev #$branch
+# Usage: get_tag_name.sh [dev|stable|release]
+# Prints major.minor.patch.commit based on the latest matching git tag.
+#   dev     - same version as the latest tag
+#   stable  - patch + 1
+#   release - minor + 1, patch = 0
 
-#cd "$path_to_repo" || exit 2
+tag_prefix="uni_mob_"
+tag_filter="${tag_prefix}1*"   # only major version 1 tags
+build_branch="${1:-dev}"
 
-full_version=$(git tag -l "$template_to_find"* --sort=-v:refname | head -n1)
-if [ -z "$full_version" ]; then
-  #echo "Can't load current software version. Check your template_to_find"
+full_tag=$(git for-each-ref --count=1 --sort=-v:refname --format='%(refname:short)' "refs/tags/$tag_filter")
+if [ -z "$full_tag" ]; then
+  echo "No tag matching '$tag_filter' found" >&2
   exit 3
-#else
-#  echo "Git soft version is $full_version."
 fi
 
-git_major_version=$(echo "$full_version" | grep -o '[0-9].*' | cut -d '.' -f1)
-git_minor_version=$(echo "$full_version" | grep -o '[0-9].*' | cut -d '.' -f2)
-git_patch_version=$(echo "$full_version" | grep -o '[0-9].*' | cut -d '.' -f3)
+version=${full_tag#"$tag_prefix"}
+IFS=. read -r major minor patch <<< "$version"
+for part in "$major" "$minor" "$patch"; do
+  if ! [[ "$part" =~ ^[0-9]+$ ]]; then
+    echo "Tag '$full_tag' is not in '${tag_prefix}major.minor.patch' format" >&2
+    exit 5
+  fi
+done
+
+case "$build_branch" in
+  release) minor=$((minor + 1)); patch=0 ;;
+  stable)  patch=$((patch + 1)) ;;
+  dev)     ;;
+  *)
+    echo "Unsupported branch '$build_branch'. Use dev, stable or release" >&2
+    exit 4
+    ;;
+esac
+
 git_commit_id=$(git show -s --format=%h)
-
-if [ "$build_branch" == "release" ]; then
-  major=$git_major_version
-  minor=$((git_minor_version + 1))
-  patch=0
-elif [ "$build_branch" == "stable" ]; then
-  major=$git_major_version
-  minor=$git_minor_version
-  patch=$((git_patch_version + 1))
-elif [ "$build_branch" == "dev" ]; then
-  major=$git_major_version
-  minor=$git_minor_version
-  patch=$git_patch_version
-else
-  #echo "Supported branches are dev, stable, release. Check your build_branch"
-  exit 4
-fi
-
-#echo "MAJOR=$major" > "$path_to_repo"/"$filename"
-#echo "MINOR=$minor" >> "$path_to_repo"/"$filename"
-#echo "PATCH=$patch" >> "$path_to_repo"/"$filename"
-#echo "COMMIT=$git_commit_id" >> "$path_to_repo"/"$filename"
-#echo "Current build version will be $major.$minor.$patch-$git_commit_id"
 
 echo "$major.$minor.$patch.$git_commit_id"
