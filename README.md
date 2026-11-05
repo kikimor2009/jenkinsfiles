@@ -37,22 +37,22 @@ Exit codes: `4` tag suffix is not a number.
 
 | # | File | What it does |
 |---|---|---|
-| 01 | `01_android_gradle_release.Jenkinsfile` | Android release build versioned from git tags. Copies the APK to a NAS over SSH, pushes a new `uni_mob_*` tag, and sends a Telegram notification. |
-| 02 | `02_android_gradle_publish_maven.Jenkinsfile` | Android Gradle `publishToMavenLocal`, then triggers a downstream job on success. |
-| 03 | `03_maven_build_deploy.Jenkinsfile` | Maven `package` then `deploy`, triggered by a GitHub push, with build retention and a timeout. |
-| 04 | `04_gradle_ssh_stage_prod_deploy.Jenkinsfile` | Gradle build, SSH deploy to staging, manual approval, then SSH deploy to production (`master` only). |
-| 05 | `05_gradle_docker_ssh_deploy.Jenkinsfile` | Gradle build, Docker image build and push, then SSH deploy of the container (`master` only). |
-| 06 | `06_lab_gradle_train_schedule.Jenkinsfile` | Course lab: checkout and Gradle build of a sample train-schedule app. |
-| 07 | `07_lab_gcc_build.Jenkinsfile` | Course lab: compile a small C program in a Docker agent and archive the binary. |
-| 08 | `08_lab_docker_python.Jenkinsfile` | Course lab: run the dog-pictures downloader in a `python:alpine` Docker agent. |
-| 09 | `09_lab_picture_downloader.Jenkinsfile` | Same dog-pictures lab as 08, written differently (clone step, dedicated agent label). |
-| 10 | `10_lab_image_watermarker.Jenkinsfile` | Course lab: watermark images fetched from another job's artifacts, on a CentOS 7 agent. |
+| 01 | `01_android_gradle_build_publish_release.Jenkinsfile` | Android release pipeline. Versions from git tags, builds the release APK, runs `publishToMavenLocal`, copies the APK to a NAS over SSH, pushes a new `uni_mob_*` tag, sends a Telegram notification, and triggers the downstream Maps job (`Android/Maps/<branch>`) on success. |
+| 02 | `02_maven_build_deploy.Jenkinsfile` | Maven `package` then `deploy`, triggered by a GitHub push, with build retention and a timeout. |
+| 03 | `03_gradle_ssh_stage_prod_deploy.Jenkinsfile` | Gradle build, SSH deploy to staging, manual approval, then SSH deploy to production (`master` only). |
+| 04 | `04_gradle_docker_ssh_deploy.Jenkinsfile` | Gradle build, Docker image build and push, then SSH deploy of the container (`master` only). |
+| 05 | `05_lab_gradle_train_schedule.Jenkinsfile` | Course lab: checkout and Gradle build of a sample train-schedule app. |
+| 06 | `06_lab_gcc_build.Jenkinsfile` | Course lab: compile a small C program in a Docker agent and archive the binary. |
+| 07 | `07_lab_docker_python.Jenkinsfile` | Course lab: run the dog-pictures downloader in a `python:alpine` Docker agent. |
+| 08 | `08_lab_picture_downloader.Jenkinsfile` | Same dog-pictures lab as 07, written differently (clone step, dedicated agent label). |
+| 09 | `09_lab_image_watermarker.Jenkinsfile` | Course lab: watermark images fetched from another job's artifacts, on a CentOS 7 agent. |
 
-Pipelines 06-10 are course labs and clone sample repositories from GitHub (`linuxacademy/content-pipelines-cje-labs`, and a train-schedule app).
+Pipelines 05-09 are course labs and clone sample repositories from GitHub (`linuxacademy/content-pipelines-cje-labs`, and a train-schedule app).
 
 ## Known issues
 
-- `01` calls `./Jenkins/GetTagName.sh`. The scripts now live in `JenkinsScripts/` with snake_case names, and `01` does not pass a branch argument, so it always uses `dev`.
-- `05` logs in to Docker Hub with `docker login -p`, which exposes the password in the process list and build log. `stdin` login is the safer option.
-- `01` and `05` turn off SSH host key checking (`StrictHostKeyChecking=no`), and `05` passes the password to `sshpass` on the command line. Do not copy that into real pipelines.
-- `08` and `09` duplicate each other, and `08` has typos in its stage and message strings.
+- `01` expects the version script at `./Jenkins/get_tag_name.sh` inside the Android repo (copy `JenkinsScripts/get_tag_name.sh` there). It passes the Jenkins branch name, so only `dev`, `stable` and `release` branches build; any other branch fails with exit code 4.
+- `01` reads its secrets from Jenkins credentials (`and_build`, `gitlab_push`, `telegram_chat_id`); the header comment in the file lists everything it expects. `dev` builds are not tagged and get the commit hash as `-PvCommit`. Host key checking is on, so the Git host must be in the agent's `known_hosts`.
+- `04` logs in to Docker Hub with `docker login -p`, which exposes the password in the process list and build log. `stdin` login is the safer option.
+- `04` turns off SSH host key checking (`StrictHostKeyChecking=no`) and passes the password to `sshpass` on the command line. Do not copy that into real pipelines.
+- `07` and `08` duplicate each other, and `07` has typos in its stage and message strings.

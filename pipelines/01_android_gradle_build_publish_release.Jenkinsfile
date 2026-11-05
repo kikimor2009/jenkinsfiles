@@ -1,28 +1,57 @@
+// Android release pipeline:
+// version from git tags -> release APK -> publish to local Maven -> copy APK to NAS
+// -> push version tag -> notify, and trigger the downstream Maps job on success.
+//
+// Jenkins configuration this pipeline expects (nothing secret is stored in this file):
+//   credentials:  and_build            (secret text)  Gradle token
+//                 gitlab_push          (SSH key)      push access for tags
+//                 telegram_chat_id     (secret text)  Telegram chat id
+//   SSH server:   NAS_Bud              (Publish over SSH config)
+//   plugins:      Telegram Notifications, Publish Over SSH, SSH Agent
+//
+// Versioning: stable and release builds create a new uni_mob_X.Y.Z tag. dev builds are not
+// tagged (the tag would already exist); they reuse the latest version and are told apart by
+// the commit hash, passed to Gradle as -PvCommit.
+//
+// Note: host key checking is ON. The Git host must already be in the agent's known_hosts,
+// for example: ssh-keyscan <git-host> >> ~/.ssh/known_hosts (run once as the agent user).
+
 def (MAJOR, MINOR, PATCH, COMMIT) = new String[4]
 
 pipeline {
   agent { label 'Android' }
   environment {
-        TAG = sh(script:'./Jenkins/GetTagName.sh', returnStdout: true).trim()
+    TELEGRAM_CHAT_ID = credentials('telegram_chat_id')
+    // Prints MAJOR.MINOR.PATCH.COMMIT; the branch (dev|stable|release) decides which part is bumped.
+    TAG = sh(script: "./Jenkins/get_tag_name.sh '${BRANCH_NAME}'", returnStdout: true).trim()
   }
   stages {
-    stage ("Prepare Env") {
+    stage("Prepare Env") {
       steps {
         script {
-          VARS = env.TAG.split("\\.")
-          MAJOR = VARS[0]
-          MINOR = VARS[1]
-          PATCH = VARS[2]
-          COMMIT = VARS[3]
+          def vars = env.TAG.split("\\.")
+          MAJOR = vars[0]
+          MINOR = vars[1]
+          PATCH = vars[2]
+          COMMIT = vars[3]
         }
       }
     }
     stage("Build") {
       steps {
-        withCredentials([string(credentialsId: 'and_build', variable: 'TOKEN')]) {
-          sh """chmod -R 755 ./*
-                ./gradlew --no-daemon -PvMajor=${MAJOR} -PvMinor=${MINOR} -PvPatch=${PATCH} -PmapsGitBranch=${BRANCH_NAME} -Ptoken=${TOKEN} assembleRelease
+        // The token is passed as an environment variable (Gradle reads ORG_GRADLE_PROJECT_<name>
+        // as -P<name>), so it never appears in the command line or in Groovy string interpolation.
+        withCredentials([string(credentialsId: 'and_build', variable: 'ORG_GRADLE_PROJECT_token')]) {
+          sh """chmod +x ./gradlew
+                ./gradlew --no-daemon -PvMajor=${MAJOR} -PvMinor=${MINOR} -PvPatch=${PATCH} -PvCommit=${COMMIT} -PmapsGitBranch='${BRANCH_NAME}' assembleRelease
               """
+        }
+      }
+    }
+    stage("Publish to Maven Local") {
+      steps {
+        withCredentials([string(credentialsId: 'and_build', variable: 'ORG_GRADLE_PROJECT_token')]) {
+          sh "./gradlew --no-daemon -PgitBranch='${BRANCH_NAME}' publishToMavenLocal"
         }
       }
     }
@@ -32,21 +61,23 @@ pipeline {
       }
     }
     stage("Push Tags") {
+      when { not { branch 'dev' } }
       steps {
-        sshagent(['gitlab_pull']) {
-                    sh("""
-                        #!/usr/bin/env bash
-                        export GIT_SSH_COMMAND="ssh -oStrictHostKeyChecking=no"
-			                  git tag uni_mob_${MAJOR}.${MINOR}.${PATCH}
-                        git push origin --tags
-                     """)
-         }
-       }
-     }
+        sshagent(['gitlab_push']) {
+          sh """
+            git tag uni_mob_${MAJOR}.${MINOR}.${PATCH}
+            git push origin uni_mob_${MAJOR}.${MINOR}.${PATCH}
+          """
+        }
+      }
+    }
   }
   post {
     always {
-      telegramSend(message: "Branch - $BRANCH_NAME Result - ${currentBuild.currentResult} Build URL - $BUILD_URL", chatId: -468000522)
+      telegramSend(message: "Branch - ${BRANCH_NAME} Result - ${currentBuild.currentResult} Build URL - ${BUILD_URL}", chatId: env.TELEGRAM_CHAT_ID)
+    }
+    success {
+      build(wait: false, job: "Android/Maps/${BRANCH_NAME}")
     }
   }
 }
